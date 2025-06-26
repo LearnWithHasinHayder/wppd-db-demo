@@ -12,11 +12,18 @@
 class DB_Demo {
     function __construct() {
         register_activation_hook(__FILE__, [$this, 'activate']);
+        add_action('init', [$this, 'activate']);
         // add_action('init', [$this, 'activate']);
         add_action('admin_menu', [$this, 'register_admin_page']);
         add_action('admin_post_db_demo_add', [$this, 'handle_add']);
         add_action('admin_post_db_demo_edit', [$this, 'handle_edit']);
         add_action('admin_post_db_demo_delete', [$this, 'handle_delete']);
+        add_action('admin_enqueue_scripts', [$this, 'enqueue_admin_scripts']);
+    }
+
+    function enqueue_admin_scripts() {
+        wp_enqueue_media();
+        wp_enqueue_script('db-demo-media-js', plugin_dir_url(__FILE__) . "admin/js/media.js", [], time(), true);
     }
 
     function register_admin_page() {
@@ -47,6 +54,7 @@ class DB_Demo {
         }
         $action_name = $editing === false ? 'db_demo_add' : 'db_demo_edit';
         $button_label = $editing === false ? 'Add Person' : 'Edit Person';
+        $media_url = ($editing && !empty($edit_row->media)) ? $edit_row->media : '';
         ?>
         <div class="wrap">
             <h1>DB Demo</h1>
@@ -67,10 +75,23 @@ class DB_Demo {
                         <td><input name="email" value="<?php echo esc_attr($editing ? $edit_row->email : ''); ?>" type="email" id="email" class="regular-text" required></td>
                     </tr>
                     <tr>
+                        <th><label for="media_url">Media</label></th>
+                        <td>
+                            <input type="hidden" name="media_url" id="media_url" value="<?php echo $media_url; ?>" >
+                            <button type="button" class="button" id="db-demo-media-btn">Select/Upload Image</button>
+                            <div id="db-demo-media-preview" style="margin-top:10px;">
+                                <?php if ($media_url) { ?>
+									<img src="<?php echo esc_url($media_url); ?>" style="max-width:200px;max-height:100px;">
+								<?php } ?>
+                            </div>
+                        </td>
+                    </tr>
+                    <tr>
                         <td colspan="2">
                             <input type="submit" class="button button-primary" value="<?= esc_attr($button_label); ?>">
                         </td>
                     </tr>
+
                 </table>
             </form>
             <?php
@@ -83,6 +104,7 @@ class DB_Demo {
                         <th>ID</th>
                         <th>Name</th>
                         <th>Email</th>
+                        <th>Media</th>
                         <th>Created At</th>
                         <th>Actions</th>
                     </tr>
@@ -96,10 +118,17 @@ class DB_Demo {
                                 <td><?php echo esc_html($person->id); ?></td>
                                 <td><?php echo esc_html($person->name); ?></td>
                                 <td><?php echo esc_html($person->email); ?></td>
+                                <td>
+                                    <?php
+                                    if (!empty($person->media)) {
+                                        echo "<img src='" . esc_url($person->media) . "' style='max-width:60px;max-height:60px;'/>";
+                                    }
+                                    ?>
+                                </td>
                                 <td><?php echo esc_html($person->created_at); ?></td>
                                 <td>
                                     <a href="<?php echo admin_url('admin.php?page=db-demo&edit=' . $person->id); ?>" class="button">Edit</a>
-                                    <form method="post" action="<?php echo admin_url('admin-post.php'); ?>" style="display:inline;">
+                                    <form onsubmit="return confirm('are you sure?')" method="post" action="<?php echo admin_url('admin-post.php'); ?>" style="display:inline;">
                                         <?php wp_nonce_field('db_demo_action', 'db_demo_nonce'); ?>
                                         <input type="hidden" name="action" value="db_demo_delete">
                                         <input type="hidden" name="id" value="<?php echo esc_attr($person->id); ?>">
@@ -127,10 +156,12 @@ class DB_Demo {
 
         $name = sanitize_text_field($_POST['name']);
         $email = sanitize_email($_POST['email']);
+        $media_url = isset($_POST['media_url']) ? esc_url_raw($_POST['media_url']) : '';
 
         $wpdb->insert($table_name, [
             'name' => $name,
-            'email' => $email
+            'email' => $email,
+            'media' => $media_url
         ]);
 
         wp_redirect(admin_url('admin.php?page=db-demo'));
@@ -147,6 +178,7 @@ class DB_Demo {
         $id = intval($_POST['id']);
         $name = sanitize_text_field($_POST['name']);
         $email = sanitize_email($_POST['email']);
+        $media_url = isset($_POST['media_url']) ? esc_url_raw($_POST['media_url']) : '';
 
         if ($id <= 0 || empty($name) || empty($email)) {
             wp_die('Invalid data provided.');
@@ -154,7 +186,8 @@ class DB_Demo {
 
         $wpdb->update($table_name, [
             'name' => $name,
-            'email' => $email
+            'email' => $email,
+            'media'=>$media_url
         ], ['id' => $id]);
 
         wp_redirect(admin_url('admin.php?page=db-demo'));
@@ -184,10 +217,11 @@ class DB_Demo {
         $table_name = $wpdb->prefix . "db_demo";
         $charset_collate = $wpdb->get_charset_collate();
 
-        $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+        $sql = "CREATE TABLE $table_name (
 			id mediumint(9) NOT NULL AUTO_INCREMENT,
 			name tinytext NOT NULL,
 			email VARCHAR(100) NOT NULL,
+            media VARCHAR(255) DEFAULT '' NULL,
 			created_at datetime DEFAULT CURRENT_TIMESTAMP NOT NULL,
 			PRIMARY KEY  (id)
 		) $charset_collate;";
